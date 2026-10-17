@@ -156,6 +156,7 @@
 const W = 360, H = 640, GROUND_Y = 576; // matches assets/flappybirdbg.png
 const BIRD_X = 90, BIRD_W = 34, BIRD_H = 24, BIRD_R = 10;
 const PIPE_W = 64, PIPE_H = 512, GAP = 150, SPACING = 210, SPEED = 150;
+const SPEEDUP_PER_POINT = 0.04, MAX_SPEEDUP = 1.8, SPEEDUP_EVERY = 5; // 1.8x top speed at 20 points
 const MAX_VY = 450, DEADZONE = 1;
 const DEFAULT_LEVEL = 100; // lid angle (°) that flies level
 const FONT = '"Press Start 2P", monospace';
@@ -307,14 +308,14 @@ function resetNeutral() {
 }
 
 // ---------------------------------------------------------------- game
-const game = { state: 'ready', t: 0, score: 0, pipes: [], groundX: 0, flash: 0, overAt: 0, spawnIn: 0,
+const game = { state: 'ready', t: 0, score: 0, speed: 1, pipes: [], groundX: 0, flash: 0, overAt: 0, spawnIn: 0,
   lastGap: 290, newBest: false, toast: null, toastUntil: 0, wingAt: 0 };
 const bird = { y: 290, vy: 0, rot: 0, anim: 0, frame: 1 };
 
 function toast(text) { game.toast = text; game.toastUntil = game.t + 1.6; }
 
 function reset() {
-  Object.assign(game, { state: 'ready', score: 0, pipes: [], flash: 0, lastGap: 290, newBest: false });
+  Object.assign(game, { state: 'ready', score: 0, speed: 1, pipes: [], flash: 0, lastGap: 290, newBest: false });
   Object.assign(bird, { y: 290, vy: 0, rot: 0 });
 }
 function start() {
@@ -368,14 +369,19 @@ function update(dt) {
   keyOffset += Math.max(-step, Math.min(step, keyTarget - keyOffset));
 
   const tv = targetVelocity();
-  if (game.state === 'ready' || game.state === 'play') game.groundX += SPEED * dt;
+  // speed multiplier eases up as the score climbs
+  const targetSpeed = Math.min(MAX_SPEEDUP, 1 + game.score * SPEEDUP_PER_POINT);
+  game.speed += (targetSpeed - game.speed) * (1 - Math.exp(-dt * 2));
+  const vx = SPEED * game.speed;
+  if (game.state === 'ready' || game.state === 'play') game.groundX += vx * dt;
 
   if (game.state === 'ready') {
     bird.y = 290 + Math.sin(game.t * 6) * 5;
     bird.rot += (Math.atan2(tv, 220) * 0.6 - bird.rot) * (1 - Math.exp(-dt * 8));
     bird.anim += dt * 9;
   } else if (game.state === 'play') {
-    bird.vy += (tv - bird.vy) * (1 - Math.exp(-dt * 30));
+    const vyScale = 1 + (game.speed - 1) * 0.5; // vertical speed keeps partial pace with scrolling
+    bird.vy += (tv * vyScale - bird.vy) * (1 - Math.exp(-dt * 30));
     bird.y += bird.vy * dt;
     if (bird.y < BIRD_R) { bird.y = BIRD_R; bird.vy = Math.max(0, bird.vy); }
     const targetRot = Math.max(-0.6, Math.min(1.1, Math.atan2(bird.vy, 220)));
@@ -383,11 +389,14 @@ function update(dt) {
     bird.anim += dt * (bird.vy < -20 ? 16 : 9);
     if (bird.vy < -MAX_VY * 0.3 && game.t - game.wingAt > 0.35) { game.wingAt = game.t; sfx.wing(); }
 
-    game.spawnIn -= SPEED * dt;
+    game.spawnIn -= vx * dt;
     if (game.spawnIn <= 0) { spawnPipe(); game.spawnIn += SPACING; }
     for (const p of game.pipes) {
-      p.x -= SPEED * dt;
-      if (!p.scored && p.x + PIPE_W / 2 < BIRD_X) { p.scored = true; game.score++; sfx.point(); }
+      p.x -= vx * dt;
+      if (!p.scored && p.x + PIPE_W / 2 < BIRD_X) {
+        p.scored = true; game.score++; sfx.point();
+        if (game.score % SPEEDUP_EVERY === 0 && game.score * SPEEDUP_PER_POINT <= MAX_SPEEDUP - 1) toast('FASTER!');
+      }
     }
     game.pipes = game.pipes.filter(p => p.x > -PIPE_W);
 
