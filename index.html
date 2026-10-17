@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tilt Bird</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000; --text: #f4f6f9; --muted: #b9c2cf;
+    --accent: #ffb02e; --ok: #4fd16b; --warn: #ffb02e; --bad: #ff6b6b;
+    --glass: rgba(16, 20, 26, 0.42); --glass-line: rgba(255, 255, 255, 0.22);
+    --pixel: "Press Start 2P", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  body { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+
+  /* The stage is exactly the canvas size; all UI is layered on top and scales with it (1cqw = 1% of width). */
+  #stage { position: relative; container-type: inline-size; border-radius: 6px; overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  canvas { display: block; image-rendering: pixelated; cursor: pointer; touch-action: none; }
+
+  .glass { background: var(--glass); border: 1px solid var(--glass-line); border-radius: 2.6cqw;
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+
+  /* lid HUD, top right */
+  #hud { position: absolute; top: 2.6cqw; right: 2.6cqw; width: 40cqw; padding: 2.4cqw 2.6cqw 2.2cqw;
+    pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+  .hud-top { display: flex; align-items: center; gap: 1.6cqw; font: 2.1cqw/1 var(--pixel); color: var(--muted); }
+  .dot { width: 2.2cqw; height: 2.2cqw; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 1.6cqw var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .hud-mid { display: flex; align-items: flex-end; justify-content: space-between; gap: 2cqw; margin-top: 2cqw; }
+  .angle { font: 6cqw/1 var(--pixel); color: #fff; white-space: nowrap; }
+  #hud svg { flex: none; width: 10cqw; height: auto; display: block; overflow: visible; }
+  .base { stroke: rgba(255,255,255,.75); stroke-width: 7; stroke-linecap: round; }
+  .lid { stroke: var(--accent); stroke-width: 7; stroke-linecap: round; }
+  .neutral { stroke: rgba(255,255,255,.45); stroke-width: 3; stroke-dasharray: 5 5; }
+  .meter { position: relative; height: 1.8cqw; border-radius: 1cqw; margin-top: 2cqw;
+    background: linear-gradient(90deg, #ff6b6b, rgba(255,255,255,.25) 45%, rgba(255,255,255,.25) 55%, #4fd16b); }
+  .meter i { position: absolute; top: -0.8cqw; width: 1.1cqw; height: 3.4cqw; margin-left: -0.55cqw;
+    border-radius: 0.5cqw; background: #fff; left: 50%; box-shadow: 0 0 3px rgba(0,0,0,.6); }
+  .hud-delta { font: 1.9cqw/1 var(--pixel); color: var(--muted); margin-top: 1.6cqw; text-align: center; }
+
+  /* settings button, top left */
+  #gear { position: absolute; top: 2.6cqw; left: 2.6cqw; width: 10cqw; height: 10cqw; padding: 0;
+    display: grid; place-items: center; cursor: pointer; color: #fff; }
+  #gear:hover { background: rgba(16,20,26,.6); }
+  #gear svg { width: 5.6cqw; height: 5.6cqw; }
+
+  /* settings menu */
+  #menu { position: absolute; inset: 0; background: rgba(10, 13, 18, 0.62); display: flex;
+    align-items: center; justify-content: center; padding: 4cqw; backdrop-filter: blur(2px); }
+  #menu[hidden] { display: none; }
+  .panel { width: 100%; max-height: 100%; overflow-y: auto; background: rgba(28, 33, 41, 0.94);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 3cqw; padding: 4.4cqw; font-size: max(12px, 3.6cqw); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2cqw; }
+  .panel h2 { font: 4.4cqw/1 var(--pixel); margin: 0; color: var(--accent); }
+  .panel h3 { font: max(8px, 2.4cqw)/1 var(--pixel); color: var(--muted); margin: 5cqw 0 2.4cqw; letter-spacing: .05em; }
+  .status { display: flex; align-items: center; gap: 2cqw; font-weight: 600; }
+  button { font: inherit; font-weight: 600; color: var(--text); background: #2b323d; border: 1px solid #3a4350;
+    border-radius: 2cqw; padding: 2.2cqw 2.8cqw; cursor: pointer; width: 100%; }
+  button:hover { background: #343c48; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #1a1408; }
+  button.primary:hover { filter: brightness(1.08); }
+  #closeBtn { width: auto; padding: 1.2cqw 2.6cqw; }
+  .row { display: flex; gap: 2cqw; margin-top: 2.4cqw; }
+  label { display: flex; align-items: center; justify-content: space-between; gap: 3cqw; margin-top: 2.6cqw; color: var(--muted); }
+  label output { min-width: 11cqw; text-align: right; color: var(--text); }
+  input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); width: 4cqw; height: 4cqw; min-width: 14px; min-height: 14px; }
+  kbd { font: 0.85em ui-monospace, Menlo, monospace; background: #2b323d; border: 1px solid #3a4350;
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; color: var(--text); }
+  ul { margin: 0; padding-left: 5cqw; color: var(--muted); }
+  li { margin: 1cqw 0; }
+  details { margin-top: 4cqw; }
+  details summary { cursor: pointer; color: var(--muted); }
+  details p { color: var(--muted); margin: 2cqw 0 0; }
+  code { font: 0.85em ui-monospace, Menlo, monospace; background: #11151a; padding: 2px 5px; border-radius: 4px; color: var(--text); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" aria-label="Tilt Bird game"></canvas>
+
+  <button id="gear" class="glass" title="Settings (Esc)" aria-label="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
+
+  <div id="hud" class="glass" aria-live="off">
+    <div class="hud-top"><span class="dot" id="dot"></span><span id="hudLabel">LID</span></div>
+    <div class="hud-mid">
+      <div class="angle" id="angleText">--°</div>
+      <svg viewBox="0 0 100 80" aria-hidden="true">
+        <line class="neutral" id="neutralLine" x1="20" y1="74" x2="20" y2="8"/>
+        <line class="base" x1="20" y1="74" x2="96" y2="74"/>
+        <line class="lid" id="lidLine" x1="20" y1="74" x2="20" y2="6"/>
+      </svg>
+    </div>
+    <div class="meter"><i id="meterMark"></i></div>
+    <div class="hud-delta" id="deltaText">LEVEL</div>
+  </div>
+
+  <div id="menu" hidden>
+    <div class="panel" role="dialog" aria-label="Settings">
+      <div class="panel-head"><h2>SETTINGS</h2><button id="closeBtn">Done</button></div>
+
+      <h3>LID SENSOR</h3>
+      <div class="status"><span class="dot" id="menuDot"></span><span id="statusText">Lid sensor not connected</span></div>
+      <div class="row"><button class="primary" id="connectBtn">Connect lid sensor</button></div>
+      <div class="row">
+        <button id="calibBtn" title="Shortcut: C">Set current as level</button>
+        <button id="resetBtn" style="width:auto"></button>
+      </div>
+      <label>Full speed at <input type="range" id="range" min="4" max="30" step="1"><output id="rangeText"></output></label>
+      <label>Invert controls <input type="checkbox" id="invert"></label>
+
+      <h3>AUDIO</h3>
+      <label>Music <input type="checkbox" id="music"></label>
+      <label>Music volume <input type="range" id="musicVol" min="0" max="100" step="1"><output id="musicVolText"></output></label>
+      <label>Sound effects <input type="checkbox" id="sound"></label>
+      <label>Effects volume <input type="range" id="sfxVol" min="0" max="100" step="1"><output id="sfxVolText"></output></label>
+
+      <h3>CONTROLS</h3>
+      <ul>
+        <li><kbd>Space</kbd> / click: start, restart</li>
+        <li><kbd>↑</kbd> <kbd>↓</kbd> simulate tilt (no sensor needed)</li>
+        <li><kbd>C</kbd> set current lid angle as level</li>
+        <li><kbd>M</kbd> mute everything</li>
+        <li><kbd>Esc</kbd> open / close settings</li>
+      </ul>
+
+      <details>
+        <summary>Sensor won't connect?</summary>
+        <p>Use Chrome and click <b>Connect lid sensor</b>, then pick the Apple sensor device in the popup.</p>
+        <p>If it doesn't appear, run the bridge in Terminal from this folder:</p>
+        <p><code>swift lid-bridge.swift</code></p>
+        <p>The game picks it up automatically.</p>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ---------------------------------------------------------------- constants
+const W = 360, H = 640, GROUND_Y = 576; // matches assets/flappybirdbg.png
+const BIRD_X = 90, BIRD_W = 34, BIRD_H = 24, BIRD_R = 10;
+const PIPE_W = 64, PIPE_H = 512, GAP = 150, SPACING = 210, SPEED = 150;
+const MAX_VY = 450, DEADZONE = 1;
+const DEFAULT_LEVEL = 100; // lid angle (°) that flies level
+const FONT = '"Press Start 2P", monospace';
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('tiltbird.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('tiltbird.' + k, JSON.stringify(v)); } catch {} },
+};
+const cfg = {
+  neutral: store.get('level', DEFAULT_LEVEL),
+  range: store.get('range', 10), // degrees of tilt from level that give full speed
+  invert: store.get('invert', false),
+  muted: store.get('muted', false), // master mute (M)
+  music: store.get('music', true),
+  sound: store.get('sound', true),
+  musicVol: store.get('musicVol', 25),
+  sfxVol: store.get('sfxVol', 80),
+};
+let best = store.get('best', 0);
+
+// ---------------------------------------------------------------- image assets
+const loadImg = src => Object.assign(new Image(), { src: 'assets/' + src });
+const ready = img => img.complete && img.naturalWidth > 0;
+const img = {
+  bg: loadImg('flappybirdbg.png'),
+  top: loadImg('toppipe.png'),
+  bottom: loadImg('bottompipe.png'),
+  bird: [0, 1, 2, 3].map(i => loadImg(`flappybird${i}.png`)),
+};
+
+// ---------------------------------------------------------------- audio assets
+const loadSnd = (src, vol) => Object.assign(new Audio('assets/' + src), { preload: 'auto', volume: vol });
+const snd = {
+  point: loadSnd('sfx_point.wav', 0.5), hit: loadSnd('sfx_hit.wav', 0.6), die: loadSnd('sfx_die.wav', 0.6),
+  swoosh: loadSnd('sfx_swooshing.wav', 0.5), wing: loadSnd('sfx_wing.wav', 0.35),
+};
+const bgm = Object.assign(loadSnd('bgm_mario.mp3', 1), { loop: true });
+function play(a, delay = 0) {
+  if (cfg.muted || !cfg.sound) return;
+  const go = () => { const c = a.cloneNode(); c.volume = Math.min(1, a.volume * cfg.sfxVol / 80); c.play().catch(() => {}); };
+  delay ? setTimeout(go, delay * 1000) : go();
+}
+function syncMusic() {
+  bgm.volume = cfg.musicVol / 100;
+  if (cfg.muted || !cfg.music || !cfg.musicVol) bgm.pause(); else bgm.play().catch(() => {});
+}
+function audio() { syncMusic(); } // first user gesture unlocks playback
+const sfx = {
+  point() { play(snd.point); },
+  hit() { play(snd.hit); },
+  die() { play(snd.die, 0.3); },
+  swoosh() { play(snd.swoosh); },
+  wing() { play(snd.wing); },
+};
+
+// ---------------------------------------------------------------- lid sensor
+const sensor = { raw: null, smooth: null, source: 'none', last: 0 };
+function setAngle(a, source) {
+  if (!(a >= 0 && a <= 360)) return;
+  sensor.raw = a; sensor.source = source; sensor.last = performance.now();
+  if (sensor.smooth == null) sensor.smooth = a;
+}
+const sensorLive = () => sensor.source !== 'none' && performance.now() - sensor.last < 1500;
+
+// Primary path: WebHID straight to the Apple lid sensor (Sensor page 0x20, Orientation 0x8A).
+const HID_FILTER = { vendorId: 0x05AC, productId: 0x8104, usagePage: 0x0020, usage: 0x008A };
+let hidDevice = null, hidError = '';
+const isLidSensor = d => d.vendorId === HID_FILTER.vendorId && d.productId === HID_FILTER.productId &&
+  d.collections.some(c => c.usagePage === HID_FILTER.usagePage && c.usage === HID_FILTER.usage);
+
+function parseReport(dv) {
+  // Chrome normally prefixes the report ID (1); handle both layouts.
+  if (dv.byteLength >= 3 && dv.getUint8(0) === 1) return dv.getUint16(1, true);
+  if (dv.byteLength >= 2) return dv.getUint16(0, true);
+  return null;
+}
+async function connectHID(interactive) {
+  if (!('hid' in navigator)) { hidError = 'WebHID unavailable here (use Chrome)'; return false; }
+  try {
+    let devices = (await navigator.hid.getDevices()).filter(isLidSensor);
+    if (!devices.length && interactive) devices = (await navigator.hid.requestDevice({ filters: [HID_FILTER] })).filter(isLidSensor);
+    if (!devices.length) { if (interactive) hidError = 'No sensor selected'; return false; }
+    const dev = devices[0];
+    if (!dev.opened) await dev.open();
+    hidDevice = dev; hidError = '';
+    pollHID(dev);
+    return true;
+  } catch (e) {
+    hidError = 'WebHID: ' + (e.message || e);
+    return false;
+  }
+}
+async function pollHID(dev) {
+  while (hidDevice === dev) {
+    try {
+      const a = parseReport(await dev.receiveFeatureReport(1));
+      if (a != null) setAngle(a, 'WebHID');
+    } catch (e) {
+      hidError = 'Sensor read failed: ' + (e.message || e);
+      hidDevice = null; if (sensor.source === 'WebHID') sensor.source = 'none';
+      return;
+    }
+    await new Promise(r => setTimeout(r, 16));
+  }
+}
+if ('hid' in navigator) {
+  navigator.hid.addEventListener('disconnect', e => {
+    if (e.device === hidDevice) { hidDevice = null; if (sensor.source === 'WebHID') sensor.source = 'none'; }
+  });
+}
+
+// Fallback path: lid-bridge.swift streaming the angle over Server-Sent Events.
+const BRIDGE = location.port === '8765' ? '' : 'http://127.0.0.1:8765';
+let bridgeES = null;
+async function probeBridge() {
+  if (hidDevice || bridgeES) return;
+  try {
+    const r = await fetch(BRIDGE + '/angle', { cache: 'no-store' });
+    if (!r.ok) return;
+    bridgeES = new EventSource(BRIDGE + '/stream');
+    bridgeES.onmessage = e => { if (!hidDevice) setAngle(+e.data, 'bridge'); };
+    bridgeES.onerror = () => { bridgeES.close(); bridgeES = null; if (sensor.source === 'bridge') sensor.source = 'none'; };
+  } catch {}
+}
+
+// ---------------------------------------------------------------- input
+const keys = { up: false, down: false };
+let keyOffset = 0;
+
+function currentAngle() {
+  return (sensorLive() ? sensor.smooth : cfg.neutral) + keyOffset;
+}
+function tiltDelta() {
+  const d = currentAngle() - cfg.neutral;
+  return cfg.invert ? -d : d;
+}
+function targetVelocity() {
+  const d = tiltDelta(), k = Math.min(1, Math.max(0, Math.abs(d) - DEADZONE) / (cfg.range - DEADZONE));
+  return -Math.sign(d) * k * MAX_VY;
+}
+
+function calibrate() {
+  if (!sensorLive()) { toast('NO SENSOR'); return; }
+  cfg.neutral = Math.round(sensor.smooth); store.set('level', cfg.neutral);
+  toast('LEVEL = ' + cfg.neutral + '°');
+}
+function resetNeutral() {
+  cfg.neutral = DEFAULT_LEVEL; store.set('level', DEFAULT_LEVEL); toast(`LEVEL = ${DEFAULT_LEVEL}°`);
+}
+
+// ---------------------------------------------------------------- game
+const game = { state: 'ready', t: 0, score: 0, pipes: [], groundX: 0, flash: 0, overAt: 0, spawnIn: 0,
+  lastGap: 290, newBest: false, toast: null, toastUntil: 0, wingAt: 0 };
+const bird = { y: 290, vy: 0, rot: 0, anim: 0, frame: 1 };
+
+function toast(text) { game.toast = text; game.toastUntil = game.t + 1.6; }
+
+function reset() {
+  Object.assign(game, { state: 'ready', score: 0, pipes: [], flash: 0, lastGap: 290, newBest: false });
+  Object.assign(bird, { y: 290, vy: 0, rot: 0 });
+}
+function start() {
+  game.state = 'play'; game.spawnIn = 120;
+  bird.vy = targetVelocity();
+  sfx.swoosh();
+}
+function action() {
+  audio();
+  if (game.state === 'ready') start();
+  else if (game.state === 'over' && game.t - game.overAt > 0.6) { sfx.swoosh(); reset(); }
+}
+function crash(onGround) {
+  sfx.hit(); game.flash = 1;
+  if (onGround) gameOver();
+  else { game.state = 'dying'; bird.vy = Math.max(bird.vy, 0); sfx.die(); }
+}
+function gameOver() {
+  game.state = 'over'; game.overAt = game.t;
+  if (game.score > best) { best = game.score; game.newBest = true; store.set('best', best); }
+}
+
+function spawnPipe() {
+  const min = GAP / 2 + 50, max = GROUND_Y - GAP / 2 - 50;
+  let c = min + Math.random() * (max - min);
+  if (Math.abs(c - game.lastGap) > 175) c = game.lastGap + Math.sign(c - game.lastGap) * 175;
+  game.lastGap = c;
+  game.pipes.push({ x: W, top: c - GAP / 2, bot: c + GAP / 2, scored: false });
+}
+
+function circleRect(cx, cy, r, x, y, w, h) {
+  const nx = Math.max(x, Math.min(cx, x + w)), ny = Math.max(y, Math.min(cy, y + h));
+  return (cx - nx) ** 2 + (cy - ny) ** 2 < r * r;
+}
+function hitsPipe(p) {
+  return circleRect(BIRD_X, bird.y, BIRD_R, p.x, -200, PIPE_W, p.top + 200) ||
+    circleRect(BIRD_X, bird.y, BIRD_R, p.x, p.bot, PIPE_W, GROUND_Y - p.bot);
+}
+
+const menuOpen = () => !menuEl.hidden;
+const paused = () => menuOpen() && game.state !== 'over';
+function update(dt) {
+  if (paused()) return;
+  game.t += dt;
+  game.flash = Math.max(0, game.flash - dt * 3);
+
+  // smooth sensor + keyboard tilt
+  if (sensorLive()) sensor.smooth += (sensor.raw - sensor.smooth) * (1 - Math.exp(-dt / 0.02));
+  const keyTarget = keys.up ? cfg.range : keys.down ? -cfg.range : 0;
+  const step = 200 * dt;
+  keyOffset += Math.max(-step, Math.min(step, keyTarget - keyOffset));
+
+  const tv = targetVelocity();
+  if (game.state === 'ready' || game.state === 'play') game.groundX += SPEED * dt;
+
+  if (game.state === 'ready') {
+    bird.y = 290 + Math.sin(game.t * 6) * 5;
+    bird.rot += (Math.atan2(tv, 220) * 0.6 - bird.rot) * (1 - Math.exp(-dt * 8));
+    bird.anim += dt * 9;
+  } else if (game.state === 'play') {
+    bird.vy += (tv - bird.vy) * (1 - Math.exp(-dt * 30));
+    bird.y += bird.vy * dt;
+    if (bird.y < BIRD_R) { bird.y = BIRD_R; bird.vy = Math.max(0, bird.vy); }
+    const targetRot = Math.max(-0.6, Math.min(1.1, Math.atan2(bird.vy, 220)));
+    bird.rot += (targetRot - bird.rot) * (1 - Math.exp(-dt * 20));
+    bird.anim += dt * (bird.vy < -20 ? 16 : 9);
+    if (bird.vy < -MAX_VY * 0.3 && game.t - game.wingAt > 0.35) { game.wingAt = game.t; sfx.wing(); }
+
+    game.spawnIn -= SPEED * dt;
+    if (game.spawnIn <= 0) { spawnPipe(); game.spawnIn += SPACING; }
+    for (const p of game.pipes) {
+      p.x -= SPEED * dt;
+      if (!p.scored && p.x + PIPE_W / 2 < BIRD_X) { p.scored = true; game.score++; sfx.point(); }
+    }
+    game.pipes = game.pipes.filter(p => p.x > -PIPE_W);
+
+    if (bird.y + BIRD_R >= GROUND_Y) { bird.y = GROUND_Y - BIRD_R; crash(true); }
+    else if (game.pipes.some(hitsPipe)) crash(false);
+  } else if (game.state === 'dying') {
+    bird.vy = Math.min(bird.vy + 1500 * dt, 650);
+    bird.y += bird.vy * dt;
+    bird.rot += (Math.PI / 2 - bird.rot) * (1 - Math.exp(-dt * 10));
+    if (bird.y + BIRD_R >= GROUND_Y) { bird.y = GROUND_Y - BIRD_R; gameOver(); }
+  }
+  bird.frame = game.state === 'dying' || game.state === 'over' ? 0 : Math.floor(bird.anim) & 3;
+}
+
+// ---------------------------------------------------------------- rendering
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+let sx = 1, sy = 1;
+
+const stage = document.getElementById('stage');
+function fit() {
+  const h = Math.min(innerHeight - 32, (innerWidth - 32) * H / W, 1100);
+  const w = h * W / H, dpr = devicePixelRatio || 1;
+  cvs.style.width = w + 'px'; cvs.style.height = h + 'px';
+  stage.style.width = w + 'px'; stage.style.height = h + 'px';
+  cvs.width = Math.round(w * dpr); cvs.height = Math.round(h * dpr);
+  sx = cvs.width / W; sy = cvs.height / H;
+}
+addEventListener('resize', fit);
+fit();
+
+function text(str, x, y, size, fill, align = 'center', stroke = '#2a1a10') {
+  ctx.font = `${size}px ${FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, size * 0.36); ctx.strokeStyle = stroke;
+  ctx.strokeText(str, x, y); ctx.fillStyle = fill; ctx.fillText(str, x, y);
+}
+
+function drawPipe(p) {
+  const x = Math.round(p.x);
+  if (ready(img.top)) ctx.drawImage(img.top, x, Math.round(p.top) - PIPE_H, PIPE_W, PIPE_H);
+  if (ready(img.bottom)) ctx.drawImage(img.bottom, x, Math.round(p.bot), PIPE_W, PIPE_H);
+}
+
+function drawBird() {
+  const sprite = img.bird[bird.frame];
+  if (!ready(sprite)) return;
+  ctx.save();
+  ctx.translate(BIRD_X, Math.round(bird.y));
+  ctx.rotate(bird.rot);
+  ctx.drawImage(sprite, -BIRD_W / 2, -BIRD_H / 2, BIRD_W, BIRD_H);
+  ctx.restore();
+}
+
+// Sky is static; the ground strip of the background scrolls (and covers the pipe bottoms).
+function drawBackground() {
+  ctx.fillStyle = '#70c5ce'; ctx.fillRect(0, 0, W, H);
+  if (ready(img.bg)) ctx.drawImage(img.bg, 0, 0, W, GROUND_Y, 0, 0, W, GROUND_Y);
+}
+function drawGround() {
+  if (!ready(img.bg)) return;
+  const off = Math.floor(game.groundX) % W, gh = H - GROUND_Y;
+  ctx.drawImage(img.bg, 0, GROUND_Y, W, gh, -off, GROUND_Y, W, gh);
+  ctx.drawImage(img.bg, 0, GROUND_Y, W, gh, W - off, GROUND_Y, W, gh);
+}
+
+function drawMedal(cx, cy, score) {
+  const tiers = [[40, '#e7f6ff', '#9fc4d8'], [30, '#f6c945', '#c2902a'], [20, '#d9dee6', '#9aa3ad'], [10, '#d58a4f', '#9c5a2c']];
+  const tier = tiers.find(t => score >= t[0]);
+  ctx.beginPath(); ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+  ctx.fillStyle = tier ? tier[1] : '#d9c57e'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = tier ? tier[2] : '#bfa961'; ctx.stroke();
+  if (!tier) return;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? 6 : 13, a = -Math.PI / 2 + i * Math.PI / 5;
+    ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+  }
+  ctx.closePath(); ctx.fillStyle = tier[2]; ctx.fill();
+}
+
+function render() {
+  ctx.setTransform(sx, 0, 0, sy, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  drawBackground();
+  game.pipes.forEach(drawPipe);
+  drawGround();
+  drawBird();
+
+  const blink = Math.floor(game.t * 2.5) % 2 === 0;
+  if (game.state === 'ready') {
+    text('GET READY', W / 2, 150, 24, '#ffb02e');
+    ctx.fillStyle = 'rgba(30,40,50,0.35)';
+    ctx.beginPath(); ctx.roundRect(30, 350, 300, 110, 10); ctx.fill();
+    text('OPEN LID WIDER  CLIMB', W / 2, 372, 10, '#ffffff');
+    text('CLOSE LID       DIVE', W / 2, 394, 10, '#ffffff');
+    text(`LID AT ${cfg.neutral}°     LEVEL`, W / 2, 416, 10, '#ffffff');
+    if (blink) text('SPACE / CLICK TO START', W / 2, 440, 10, '#ffe066');
+  } else if (game.state === 'play') {
+    text(String(game.score), W / 2, 80, 34, '#ffffff');
+  } else if (game.state === 'over' || game.state === 'dying') {
+    if (game.state === 'over') {
+      const k = Math.min(1, (game.t - game.overAt) / 0.35), py = 230 + (1 - k) ** 2 * 400;
+      text('GAME OVER', W / 2, 160, 26, '#ff8f3a');
+      ctx.fillStyle = '#ded895'; ctx.strokeStyle = '#543847'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(40, py, 280, 140, 8); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#f6efc0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(44, py + 4, 272, 132, 5); ctx.stroke();
+      text('MEDAL', 95, py + 24, 10, '#e0743a', 'center', '#f6efc0');
+      drawMedal(95, py + 80, game.score);
+      text('SCORE', 300, py + 24, 10, '#e0743a', 'right', '#f6efc0');
+      text(String(game.score), 300, py + 50, 20, '#ffffff', 'right');
+      text('BEST', 300, py + 84, 10, '#e0743a', 'right', '#f6efc0');
+      text(String(best), 300, py + 112, 20, '#ffffff', 'right');
+      if (game.newBest) {
+        ctx.fillStyle = '#ff4d4d'; ctx.beginPath(); ctx.roundRect(180, py + 76, 40, 16, 3); ctx.fill();
+        text('NEW', 200, py + 84.5, 8, '#ffffff', 'center', '#a01f1f');
+      }
+      if (k === 1 && game.t - game.overAt > 0.6 && blink) text('SPACE / CLICK TO RETRY', W / 2, 420, 10, '#ffe066');
+    }
+  }
+
+  // lid readout on the ground strip
+  const live = sensorLive();
+  if (!live) text('NO SENSOR - USE UP/DOWN KEYS', W / 2, GROUND_Y + 40, 8, '#ffe066', 'center', '#6b5a2e');
+  if (cfg.muted) text('MUTED', W - 8, GROUND_Y + 56, 6, '#ffffff', 'right', '#6b5a2e');
+
+  if (paused()) text('PAUSED', W / 2, 190, 20, '#ffffff');
+  if (game.toast && game.t < game.toastUntil) text(game.toast, W / 2, 225, 14, '#ffffff');
+  if (game.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${game.flash})`; ctx.fillRect(0, 0, W, H); }
+}
+
+// ---------------------------------------------------------------- HUD + settings menu
+const el = id => document.getElementById(id);
+const menuEl = el('menu');
+const ui = { dot: el('dot'), menuDot: el('menuDot'), label: el('hudLabel'), status: el('statusText'),
+  angle: el('angleText'), delta: el('deltaText'), lid: el('lidLine'), neutral: el('neutralLine'), mark: el('meterMark') };
+
+function openMenu(open) {
+  menuEl.hidden = !open;
+  keys.up = keys.down = false;
+  if (!open) document.activeElement?.blur();
+}
+el('gear').addEventListener('click', e => { e.currentTarget.blur(); audio(); openMenu(true); });
+el('closeBtn').addEventListener('click', () => openMenu(false));
+menuEl.addEventListener('pointerdown', e => { if (e.target === menuEl) openMenu(false); });
+
+// Binds a range/checkbox to a cfg key; `fmt` renders the <output> next to a range.
+function bind(id, key, fmt, after) {
+  const input = el(id), out = el(id + 'Text'), isBox = input.type === 'checkbox';
+  const show = () => { if (out) out.textContent = fmt(cfg[key]); };
+  if (isBox) input.checked = cfg[key]; else input.value = cfg[key];
+  show();
+  input.addEventListener(isBox ? 'change' : 'input', () => {
+    cfg[key] = isBox ? input.checked : +input.value; store.set(key, cfg[key]); show(); after?.();
+  });
+}
+bind('range', 'range', v => '±' + v + '°');
+bind('invert', 'invert');
+bind('music', 'music', null, syncMusic);
+bind('musicVol', 'musicVol', v => v + '%', syncMusic);
+bind('sound', 'sound', null, () => { if (cfg.sound) sfx.point(); });
+bind('sfxVol', 'sfxVol', v => v + '%');
+el('sfxVol').addEventListener('change', () => sfx.point());
+el('connectBtn').addEventListener('click', async e => { e.currentTarget.blur(); audio(); await connectHID(true); });
+el('calibBtn').addEventListener('click', e => { e.currentTarget.blur(); calibrate(); });
+el('resetBtn').textContent = DEFAULT_LEVEL + '°';
+el('resetBtn').addEventListener('click', e => { e.currentTarget.blur(); resetNeutral(); });
+
+function updatePanel() {
+  const live = sensorLive();
+  const dotClass = 'dot' + (live ? ' ok' : keyOffset !== 0 ? ' warn' : '');
+  ui.dot.className = ui.menuDot.className = dotClass;
+  ui.label.textContent = live ? 'LID SENSOR' : keyOffset !== 0 ? 'KEYBOARD' : 'NO SENSOR';
+  ui.status.textContent = live ? `Lid sensor connected (${sensor.source})` : hidError || 'Lid sensor not connected';
+  el('connectBtn').textContent = live ? 'Connected' : 'Connect lid sensor';
+  const a = currentAngle(), d = tiltDelta();
+  ui.angle.textContent = live || keyOffset ? Math.round(a) + '°' : '--°';
+  ui.delta.textContent = Math.abs(d) <= DEADZONE ? `LEVEL ${cfg.neutral}°` :
+    `${d > 0 ? '+' : ''}${Math.round(d)}° ${d > 0 ? 'CLIMB' : 'DIVE'}`;
+  ui.delta.style.color = Math.abs(d) <= DEADZONE ? '' : d > 0 ? '#7ef08f' : '#ff9a8a';
+  ui.lid.setAttribute('transform', `rotate(${-(a - 90)} 20 74)`);
+  ui.neutral.setAttribute('transform', `rotate(${-(cfg.neutral - 90)} 20 74)`);
+  ui.mark.style.left = (50 + Math.max(-cfg.range, Math.min(cfg.range, d)) / cfg.range * 50) + '%';
+}
+
+// ---------------------------------------------------------------- events + loop
+addEventListener('keydown', e => {
+  if (e.code === 'Escape' || e.code === 'KeyP') { e.preventDefault(); audio(); openMenu(!menuOpen()); return; }
+  if (menuOpen() && e.code !== 'KeyM' && e.code !== 'KeyC') return; // menu handles its own keys
+  if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) action(); }
+  else if (e.code === 'ArrowUp' || e.code === 'KeyW') { e.preventDefault(); keys.up = true; }
+  else if (e.code === 'ArrowDown' || e.code === 'KeyS') { e.preventDefault(); keys.down = true; }
+  else if (e.code === 'KeyC') calibrate();
+  else if (e.code === 'KeyM') { cfg.muted = !cfg.muted; store.set('muted', cfg.muted); syncMusic(); toast(cfg.muted ? 'MUTED' : 'SOUND ON'); }
+});
+addEventListener('keyup', e => {
+  if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = false;
+});
+addEventListener('blur', () => { keys.up = keys.down = false; });
+cvs.addEventListener('pointerdown', e => { e.preventDefault(); action(); });
+
+let last = performance.now(), panelT = 0;
+function frame(now) {
+  const dt = Math.max(0, Math.min(1 / 30, (now - last) / 1000)); last = now;
+  update(dt);
+  render();
+  if ((panelT += Math.max(dt, 1 / 60)) > 1 / 20) { panelT = 0; updatePanel(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+connectHID(false).then(ok => { if (!ok) probeBridge(); });
+setInterval(() => { if (!sensorLive()) probeBridge(); }, 4000);
+})();
+</script>
+</body>
+</html>
